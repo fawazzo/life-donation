@@ -95,32 +95,41 @@ const updateAppointmentStatus = async (req, res) => {
         return res.status(400).json({ message: 'Invalid appointment status.' });
     }
 
+    let client; // Declare client outside the try block
     try {
+        client = await pool.connect(); // Acquire client here
+        await client.query('BEGIN');
+
         // Find the appointment and check permissions
-        const appointmentResult = await pool.query(
-            `SELECT donor_id, hospital_id FROM appointments WHERE appointment_id = $1`,
+        const appointmentResult = await client.query(
+            `SELECT donor_id, hospital_id FROM appointments WHERE appointment_id = $1 FOR UPDATE`, // Add FOR UPDATE to prevent race conditions
             [appointmentId]
         );
         const appointment = appointmentResult.rows[0];
 
         if (!appointment) {
+            await client.query('ROLLBACK'); // Rollback if not found
             return res.status(404).json({ message: 'Appointment not found.' });
         }
 
         // Authorization: Only donor can update their own non-completed/non-cancelled appt
         // Only hospital admin can update appointments for their hospital
         if (userRole === 'donor' && appointment.donor_id !== userId) {
+            await client.query('ROLLBACK');
             return res.status(403).json({ message: 'Unauthorized to update this appointment.' });
         }
         if (userRole === 'hospital_admin' && appointment.hospital_id !== userId) {
+            await client.query('ROLLBACK');
             return res.status(403).json({ message: 'Unauthorized to update this appointment.' });
         }
 
-        // Additional logic: Donors can only cancel/reschedule. Hospitals can mark complete/no_show.
+        // Additional logic: Donors can only cancel/reschedule. Hospitals can mark complete/no_show/cancel.
         if (userRole === 'donor' && !['cancelled', 'rescheduled'].includes(status)) {
+            await client.query('ROLLBACK');
             return res.status(403).json({ message: 'Donors can only cancel or reschedule appointments.' });
         }
         if (userRole === 'hospital_admin' && !['completed', 'no_show', 'cancelled'].includes(status)) {
+             await client.query('ROLLBACK');
              return res.status(403).json({ message: 'Hospital admins can only mark appointments as completed, no-show, or cancelled.' });
         }
 
@@ -130,11 +139,20 @@ const updateAppointmentStatus = async (req, res) => {
              WHERE appointment_id = $2 RETURNING *`,
             [status, appointmentId]
         );
+        
+        await client.query('COMMIT');
         res.status(200).json({ message: 'Appointment status updated successfully.', appointment: result.rows[0] });
 
     } catch (error) {
+        if (client) { // Only rollback if client was successfully acquired
+            await client.query('ROLLBACK');
+        }
         console.error('Error updating appointment status:', error.stack);
         res.status(500).json({ message: 'Server error updating appointment status.', error: error.message });
+    } finally {
+        if (client) { // Always release the client
+            client.release();
+        }
     }
 };
 
@@ -144,28 +162,42 @@ const deleteAppointment = async (req, res) => {
     const userId = req.user.user_id;
     const userRole = req.user.role;
 
+    let client; // Declare client outside the try block
     try {
+        client = await pool.connect(); // Acquire client here
+        await client.query('BEGIN'); // Start transaction
+
         // Find the appointment and check permissions
-        const appointmentResult = await pool.query(
-            `SELECT donor_id, hospital_id FROM appointments WHERE appointment_id = $1`,
+        const appointmentResult = await client.query(
+            `SELECT donor_id, hospital_id FROM appointments WHERE appointment_id = $1 FOR UPDATE`,
             [appointmentId]
         );
         const appointment = appointmentResult.rows[0];
 
         if (!appointment) {
+            await client.query('ROLLBACK');
             return res.status(404).json({ message: 'Appointment not found.' });
         }
 
         // Authorization: Only the donor who booked, the hospital, or a super_admin can delete
         if (userRole === 'super_admin' || appointment.donor_id === userId || appointment.hospital_id === userId) {
-            await pool.query('DELETE FROM appointments WHERE appointment_id = $1', [appointmentId]);
+            await client.query('DELETE FROM appointments WHERE appointment_id = $1', [appointmentId]);
+            await client.query('COMMIT'); // Commit if successful
             res.status(200).json({ message: 'Appointment deleted successfully.' });
         } else {
+            await client.query('ROLLBACK'); // Rollback if unauthorized
             return res.status(403).json({ message: 'Unauthorized to delete this appointment.' });
         }
     } catch (error) {
+        if (client) { // Only rollback if client was successfully acquired
+            await client.query('ROLLBACK');
+        }
         console.error('Error deleting appointment:', error.stack);
         res.status(500).json({ message: 'Server error deleting appointment.', error: error.message });
+    } finally {
+        if (client) { // Always release the client
+            client.release();
+        }
     }
 };
 

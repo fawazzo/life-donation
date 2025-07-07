@@ -42,8 +42,9 @@ const recordDonation = async (req, res) => {
     const parsedBloodNeedId = blood_need_id ? parseInt(blood_need_id, 10) : null;
 
 
-    const client = await pool.connect();
+    let client; // Declare client outside try block
     try {
+        client = await pool.connect(); // Acquire client here
         await client.query('BEGIN');
 
         // Check for duplicate donation for this appointment (if applicable)
@@ -115,14 +116,18 @@ const recordDonation = async (req, res) => {
         res.status(201).json({ message: 'Donation recorded successfully.', donation: newDonation });
 
     } catch (error) {
-        await client.query('ROLLBACK');
+        if (client) { // Only rollback if client was successfully acquired
+            await client.query('ROLLBACK');
+        }
         console.error('Error recording donation:', error.stack);
-        if (error.message.includes('A donation has already been recorded for this appointment.')) {
+        if (error.message.includes('A donation for appointment')) { // Check for custom message
             return res.status(409).json({ message: error.message, errorCode: 'DUPLICATE_APPOINTMENT_DONATION' });
         }
         res.status(500).json({ message: 'Server error recording donation.', error: error.message });
     } finally {
-        client.release();
+        if (client) { // Always release the client
+            client.release();
+        }
     }
 };
 
@@ -215,62 +220,63 @@ const updateAppointmentStatus = async (req, res) => {
     const { appointmentId } = req.params;
     const { status } = req.body;
     const userId = req.user.user_id;
+    const userRole = req.user.role; // Add userRole here as it's used in auth
 
     if (!status || !['scheduled', 'completed', 'cancelled', 'no_show', 'rescheduled'].includes(status)) {
         return res.status(400).json({ message: 'Invalid status provided.' });
     }
 
+    let client; // Declare client outside the try block
     try {
-        const client = await pool.connect();
-        try {
-            await client.query('BEGIN');
+        client = await pool.connect(); // Acquire client here
+        await client.query('BEGIN');
 
-            const appointmentResult = await client.query(
-                `SELECT a.hospital_id, a.donor_id, a.status FROM appointments a WHERE appointment_id = $1 FOR UPDATE`,
-                [appointmentId]
-            );
+        const appointmentResult = await client.query(
+            `SELECT a.hospital_id, a.donor_id, a.status FROM appointments a WHERE appointment_id = $1 FOR UPDATE`,
+            [appointmentId]
+        );
 
-            if (appointmentResult.rows.length === 0) {
-                await client.query('ROLLBACK');
-                return res.status(404).json({ message: 'Appointment not found.' });
-            }
-
-            const appointment = appointmentResult.rows[0];
-
-            // Authorization logic
-            // Hospital admin needs to own the hospital
-            if (req.user.role === 'hospital_admin' && appointment.hospital_id !== userId) {
-                 await client.query('ROLLBACK');
-                 return res.status(403).json({ message: 'You are not authorized to manage this appointment.' });
-            }
-            // Donor needs to own the appointment AND can only cancel/reschedule
-            if (req.user.role === 'donor' && appointment.donor_id !== userId) {
-                 await client.query('ROLLBACK');
-                 return res.status(403).json({ message: 'You are not authorized to manage this appointment.' });
-            }
-            if (req.user.role === 'donor' && (status === 'completed' || status === 'no_show')) {
-                 await client.query('ROLLBACK');
-                 return res.status(403).json({ message: 'Donors cannot set this status.' });
-            }
-
-            const result = await pool.query(
-                `UPDATE appointments SET status = $1, last_updated_at = CURRENT_TIMESTAMP WHERE appointment_id = $2 RETURNING *`,
-                [status, appointmentId]
-            );
-
-            await client.query('COMMIT');
-            res.status(200).json({ message: 'Appointment status updated successfully.', appointment: result.rows[0] });
-
-        } catch (transactionError) {
+        if (appointmentResult.rows.length === 0) {
             await client.query('ROLLBACK');
-            console.error('Error updating appointment status in transaction:', transactionError.stack);
-            res.status(500).json({ message: 'Server error updating appointment status.', error: transactionError.message });
-        } finally {
+            return res.status(404).json({ message: 'Appointment not found.' });
+        }
+
+        const appointment = appointmentResult.rows[0];
+
+        // Authorization logic
+        // Hospital admin needs to own the hospital
+        if (userRole === 'hospital_admin' && appointment.hospital_id !== userId) {
+             await client.query('ROLLBACK');
+             return res.status(403).json({ message: 'You are not authorized to manage this appointment.' });
+        }
+        // Donor needs to own the appointment AND can only cancel/reschedule
+        if (userRole === 'donor' && appointment.donor_id !== userId) {
+             await client.query('ROLLBACK');
+             return res.status(403).json({ message: 'You are not authorized to manage this appointment.' });
+        }
+        if (userRole === 'donor' && (status === 'completed' || status === 'no_show')) {
+             await client.query('ROLLBACK');
+             return res.status(403).json({ message: 'Donors cannot set this status.' });
+        }
+
+        const result = await client.query(
+            `UPDATE appointments SET status = $1, last_updated_at = CURRENT_TIMESTAMP WHERE appointment_id = $2 RETURNING *`,
+            [status, appointmentId]
+        );
+
+        await client.query('COMMIT');
+        res.status(200).json({ message: 'Appointment status updated successfully.', appointment: result.rows[0] });
+
+    } catch (error) { // This now catches both pool.connect() and query errors
+        if (client) { // Only attempt rollback if a client connection was successfully obtained
+            await client.query('ROLLBACK');
+        }
+        console.error('Error updating appointment status:', error.stack);
+        res.status(500).json({ message: 'Server error updating appointment status.', error: error.message });
+    } finally {
+        if (client) { // Only release if client was assigned
             client.release();
         }
-    } catch (error) {
-        console.error('Error connecting to DB for appointment status update:', error.stack);
-        res.status(500).json({ message: 'Server error updating appointment status.', error: error.message });
     }
 };
 
@@ -350,6 +356,7 @@ const bookAppointment = async (req, res) => {
         res.status(201).json({ message: 'Appointment booked successfully.', appointment: result.rows[0] });
     } catch (error) {
         console.error('Error booking appointment:', error.stack);
+        // Check for specific unique constraint errors if you add them (e.g., donor can't book same slot twice)
         res.status(500).json({ message: 'Server error booking appointment.', error: error.message });
     }
 };
@@ -385,9 +392,9 @@ module.exports = {
     recordDonation,
     getDonorDonations,
     getHospitalDonations,
-    getHospitalAppointments, // Exported for hospital controller too
-    updateAppointmentStatus, // Exported for hospital controller too
-    searchDonorsForHospital, // Exported for hospital controller too
-    bookAppointment,         // NEW: Export for Donor to book
-    getDonorAppointments     // NEW: Export for Donor to view their own
+    getHospitalAppointments,
+    updateAppointmentStatus,
+    searchDonorsForHospital,
+    bookAppointment,
+    getDonorAppointments
 };

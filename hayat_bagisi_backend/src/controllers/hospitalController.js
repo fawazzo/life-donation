@@ -69,41 +69,40 @@ const createBloodNeed = async (req, res) => {
         return res.status(400).json({ message: 'Invalid urgency level.' });
     }
 
+    let client; // Declare client outside try block
     try {
-        const client = await pool.connect();
-        try {
-            await client.query('BEGIN');
+        client = await pool.connect(); // Acquire client here
+        await client.query('BEGIN');
 
-            const result = await client.query(
-                `INSERT INTO blood_needs (hospital_id, blood_type, units_needed, urgency_level, details, expires_at)
-                 VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-                [hospitalId, blood_type, units_needed, urgency_level, details, expires_at]
-            );
+        const result = await client.query(
+            `INSERT INTO blood_needs (hospital_id, blood_type, units_needed, urgency_level, details, expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+            [hospitalId, blood_type, units_needed, urgency_level, details, expires_at]
+        );
 
-            const newNeed = result.rows[0];
+        const newNeed = result.rows[0];
 
-            const hospitalResult = await client.query('SELECT ST_X(location::geometry) AS longitude, ST_Y(location::geometry) AS latitude FROM hospitals WHERE hospital_id = $1', [hospitalId]);
-            const hospitalLocation = hospitalResult.rows[0];
+        const hospitalResult = await client.query('SELECT ST_X(location::geometry) AS longitude, ST_Y(location::geometry) AS latitude FROM hospitals WHERE hospital_id = $1', [hospitalId]);
+        const hospitalLocation = hospitalResult.rows[0];
 
-            if (newNeed.urgency_level === 'critical' || newNeed.urgency_level === 'urgent') {
-                sendBloodNeedNotifications(newNeed.need_id, newNeed.blood_type, hospitalLocation, newNeed.urgency_level)
-                    .catch(err => console.error("Error triggering notifications asynchronously:", err));
-            }
-
-            await client.query('COMMIT');
-            res.status(201).json({ message: 'Blood need posted successfully.', need: newNeed });
-
-        } catch (transactionError) {
-            await client.query('ROLLBACK');
-            console.error('Error in createBloodNeed transaction:', transactionError.stack);
-            res.status(500).json({ message: 'Server error posting blood need during transaction.', error: transactionError.message });
-        } finally {
-                client.release();
+        if (newNeed.urgency_level === 'critical' || newNeed.urgency_level === 'urgent') {
+            sendBloodNeedNotifications(newNeed.need_id, newNeed.blood_type, hospitalLocation, newNeed.urgency_level)
+                .catch(err => console.error("Error triggering notifications asynchronously:", err));
         }
 
+        await client.query('COMMIT');
+        res.status(201).json({ message: 'Blood need posted successfully.', need: newNeed });
+
     } catch (error) {
-        console.error('Error connecting to DB for createBloodNeed:', error.stack);
-        res.status(500).json({ message: 'Server error posting blood need.', error: error.message });
+        if (client) { // Only rollback if client was successfully acquired
+            await client.query('ROLLBACK');
+        }
+        console.error('Error in createBloodNeed transaction:', error.stack);
+        res.status(500).json({ message: 'Server error posting blood need during transaction.', error: error.message });
+    } finally {
+        if (client) { // Always release the client
+            client.release();
+        }
     }
 };
 
@@ -254,6 +253,8 @@ const updateHospitalProfile = async (req, res) => {
             return res.status(400).json({ message: 'No fields provided for update.' });
         }
 
+        updateFields.push(`last_updated_at = CURRENT_TIMESTAMP`);
+
         const query = `UPDATE hospitals SET ${updateFields.join(', ')} WHERE hospital_id = $1 RETURNING *`;
         const result = await pool.query(query, queryParams);
 
@@ -305,28 +306,27 @@ const updateHospitalInventory = async (req, res) => {
         return res.status(400).json({ message: 'Units change must be an integer.' });
     }
 
+    let client; // Declare client outside try block
     try {
-        const client = await pool.connect();
-        try {
-            await client.query('BEGIN');
+        client = await pool.connect(); // Acquire client here
+        await client.query('BEGIN');
 
-            // This now calls the internal helper function
-            const newUnitsInStock = await updateHospitalInventoryFromDonation(client, hospitalId, blood_type, units_change);
+        // This now calls the internal helper function
+        const newUnitsInStock = await updateHospitalInventoryFromDonation(client, hospitalId, blood_type, units_change);
 
-            await client.query('COMMIT');
-            res.status(200).json({ message: 'Inventory updated successfully.', blood_type, new_units_in_stock: newUnitsInStock });
-
-        } catch (transactionError) {
-            await client.query('ROLLBACK');
-            console.error('Error updating hospital inventory in transaction:', transactionError.stack);
-            res.status(500).json({ message: 'Server error updating inventory during transaction.', error: transactionError.message });
-        } finally {
-            client.release();
-        }
+        await client.query('COMMIT');
+        res.status(200).json({ message: 'Inventory updated successfully.', blood_type, new_units_in_stock: newUnitsInStock });
 
     } catch (error) {
-        console.error('Error connecting to DB for inventory update:', error.stack);
-        res.status(500).json({ message: 'Server error updating inventory.', error: error.message });
+        if (client) { // Only rollback if client was successfully acquired
+            await client.query('ROLLBACK');
+        }
+        console.error('Error updating hospital inventory in transaction:', error.stack);
+        res.status(500).json({ message: 'Server error updating inventory during transaction.', error: error.message });
+    } finally {
+        if (client) { // Always release the client
+            client.release();
+        }
     }
 };
 
