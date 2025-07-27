@@ -192,4 +192,5 @@ MIT License
 
 ## Contact
 
-Please open an issue in the repository for questions or suggestions.
+fawaz.kourdoughli@gmail.com<br/>
+https://www.linkedin.com/in/fawaz-kourdoughli
