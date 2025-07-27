@@ -192,5 +192,6 @@ MIT License
 
 ## Contact
 
-fawaz.kourdoughli@gmail.com.
+fawaz.kourdoughli@gmail.com
+
 https://www.linkedin.com/in/fawaz-kourdoughli
