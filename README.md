@@ -8,7 +8,7 @@
 
 - [Features](#features)
   - [For Donors](#for-donors)
-  - [For Hospitals/Blood-Banks](#for-hospitalsblood-banks)
+  - [For Hospitals/Blood Banks](#for-hospitalsblood-banks)
 - [Technologies Used](#technologies-used)
   - [Backend](#backend)
   - [Frontend](#frontend)
@@ -26,4 +26,170 @@
 - [License](#license)
 - [Contact](#contact)
 
-... [TRUNCATED for brevity in code cell]
+## Features
+
+### For Donors
+
+- **User Registration & Authentication**: Secure donor account creation and login.
+- **Profile Management**: View and update personal details (full name, blood type, contact, location, availability for alerts).
+- **Active Blood Needs**: Discover current blood needs posted by hospitals, filtered by blood type and proximity.
+- **Appointment Booking**: Easily book appointments with hospitals for specific blood needs or general donations.
+- **Appointment History**: View a list of past and upcoming appointments, with the option to cancel scheduled ones.
+- **Donation History**: Keep track of all recorded blood donations.
+
+### For Hospitals/Blood Banks
+
+- **Admin Registration & Authentication**: Secure hospital administrator account creation and login.
+- **Hospital Profile Management**: View and update hospital details.
+- **Blood Needs Management**:
+  - Post new blood needs.
+  - View and manage all posted needs.
+  - Automated donor notifications (SMS/Email).
+- **Inventory Management**:
+  - View blood stock levels.
+  - Manually update stock.
+- **Appointment Management**:
+  - View all appointments.
+  - Update appointment statuses.
+- **Donation Recording**:
+  - Link donations to appointments or record manually.
+
+## Technologies Used
+
+### Backend
+
+- Node.js
+- Express.js
+- PostgreSQL + PostGIS
+- node-postgres (pg)
+- bcryptjs
+- jsonwebtoken (JWT)
+- dotenv, cors
+- @sendgrid/mail
+- twilio
+
+### Frontend
+
+- React
+- Vite
+- react-router-dom
+- Axios
+- React Context API
+- Tailwind CSS
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js
+- npm or Yarn
+- PostgreSQL
+- PostGIS
+
+### 1. Clone the Repository
+
+```bash
+git clone <your-repository-url>
+cd hayat-bagisi-platform
+```
+
+### 2. Database Setup (PostgreSQL)
+
+Create a database and enable PostGIS. Then create tables using provided schema.
+
+### 3. Backend Setup
+
+```bash
+cd hayat_bagisi_backend
+npm install
+```
+
+Create `.env` file:
+
+```env
+DB_USER=...
+DB_HOST=...
+DB_NAME=...
+DB_PASSWORD=...
+DB_PORT=5432
+JWT_SECRET=...
+SENDGRID_API_KEY=...
+EMAIL_FROM=...
+TWILIO_ACCOUNT_SID=...
+TWILIO_AUTH_TOKEN=...
+TWILIO_PHONE_NUMBER=...
+```
+
+Run backend:
+
+```bash
+npm run dev
+```
+
+### 4. Frontend Setup
+
+```bash
+cd ../hayat_bagisi_frontend
+npm install
+npm run dev
+```
+
+### 5. Running the Application
+
+- Backend: http://localhost:5000
+- Frontend: http://localhost:5173
+
+## API Endpoints
+
+- Auth: `/api/auth/register`, `/api/auth/login`
+- Donors: `/api/donors/...`
+- Hospitals: `/api/hospitals/...`
+- Appointments: `/api/appointments/...`
+- Donations: `/api/donations/...`
+- Public Needs: `/api/blood-needs/...`
+
+## User Roles
+
+- **donor**: Regular user
+- **hospital_admin**: Hospital manager
+- **super_admin**: (optional) Global admin
+
+## Folder Structure
+
+```text
+hayat-bagisi-platform/
+├── hayat_bagisi_backend/
+│   └── src/
+│       ├── config/
+│       ├── controllers/
+│       ├── middleware/
+│       ├── routes/
+│       └── utils/
+├── hayat_bagisi_frontend/
+│   └── src/
+│       ├── api/
+│       ├── assets/
+│       ├── components/
+│       ├── context/
+│       ├── pages/
+│       ├── App.jsx
+│       ├── index.css
+│       └── main.jsx
+├── .gitignore
+└── README.md
+```
+
+## Contributing
+
+1. Fork the repo.
+2. Create a branch.
+3. Commit and push changes.
+4. Open a PR.
+
+## License
+
+MIT License
+
+## Contact
+
+Please open an issue in the repository for questions or suggestions.
